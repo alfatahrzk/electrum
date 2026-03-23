@@ -92,19 +92,34 @@
         </section>
 
         <section id="section-reg" class="hidden space-y-4">
-            <div class="relative h-80 w-full rounded-2xl overflow-hidden border border-slate-700 shadow-2xl">
+            <div class="relative h-64 w-full rounded-2xl overflow-hidden border border-slate-700 shadow-2xl">
                 <div id="map-reg" class="h-full w-full"></div>
-                
-                <button id="btn-use-gps" class="absolute bottom-4 right-4 z-10 bg-slate-900/90 backdrop-blur-md text-blue-400 text-xs font-black px-4 py-3 rounded-xl border border-blue-500/50 shadow-lg hover:bg-slate-800 transition-all active:scale-95 flex items-center gap-2">
-                    🎯 GUNAKAN GPS SAYA
+                <button id="btn-use-gps" class="absolute bottom-4 right-4 z-10 bg-slate-900/90 backdrop-blur-md text-blue-400 text-[10px] font-black px-3 py-2 rounded-xl border border-blue-500/50 shadow-lg hover:bg-slate-800 transition-all active:scale-95 flex items-center gap-1">
+                    🎯 GUNAKAN GPS
                 </button>
             </div>
             
             <div class="bg-slate-800 p-6 rounded-3xl border border-slate-700 space-y-4">
-                <input type="text" id="inp-bss-name" placeholder="Nama BSS Baru (e.g. BSS Gubeng 01)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-emerald-500 outline-none">
-                <button id="btn-save-bss" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-2xl shadow-lg transition-all active:scale-95">
-                    📍 KONFIRMASI TITIK BSS
-                </button>
+                <select id="select-bss" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none appearance-none font-bold text-sm">
+                    <option value="new">➕ BUAT BSS BARU</option>
+                    </select>
+
+                <input type="text" id="inp-bss-name" placeholder="Nama Stasiun (e.g. BSS Gubeng 01)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-emerald-500 outline-none">
+                
+                <div id="action-create" class="block">
+                    <button id="btn-save-bss" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-2xl shadow-lg transition-all active:scale-95">
+                        📍 DAFTARKAN BSS BARU
+                    </button>
+                </div>
+
+                <div id="action-edit" class="hidden flex gap-2">
+                    <button id="btn-update-bss" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-2xl shadow-lg transition-all active:scale-95 text-sm">
+                        💾 SIMPAN EDIT
+                    </button>
+                    <button id="btn-delete-bss" class="flex-none bg-red-600 hover:bg-red-500 text-white font-black py-4 px-5 rounded-2xl shadow-lg transition-all active:scale-95 text-lg" title="Hapus BSS">
+                        🗑️
+                    </button>
+                </div>
             </div>
         </section>
     </div>
@@ -112,17 +127,17 @@
     <script>
         // --- SERVICE: DATABASE ---
         class SupabaseService {
-            constructor(url, key) {
-                this.client = supabase.createClient(url, key);
-            }
+            constructor(url, key) { this.client = supabase.createClient(url, key); }
             async saveLog(data) { return await this.client.from('battery_logs').insert([data]); }
             async saveBSS(data) { return await this.client.from('bss_locations').insert([data]); }
             async fetchBSS() {
-                const { data } = await this.client.from('bss_locations').select('*');
+                const { data } = await this.client.from('bss_locations').select('*').order('nama_bss', { ascending: true });
                 return data || [];
             }
+            // --- FUNGSI BARU UNTUK MANAJEMEN ---
+            async updateBSS(id, data) { return await this.client.from('bss_locations').update(data).eq('id', id); }
+            async deleteBSS(id) { return await this.client.from('bss_locations').delete().eq('id', id); }
         }
-
         // --- SERVICE: LOCATION ---
         class LocationService {
             constructor() {
@@ -173,7 +188,6 @@
         // --- MAIN APP CONTROLLER ---
         class ElectrumApp {
             constructor() {
-                // Konfigurasi Kredensial
                 mapboxgl.accessToken = 'pk.eyJ1IjoiYWxmYXRhaHJ6ayIsImEiOiJjbW4zZjk1czgxY2NrMm9xNW1xeDNjNGplIn0.kTnR7XkvTxRPM_Te-rPZnw'; 
                 this.db = new SupabaseService('https://zjpnsqixrrjdjpwdtrsu.supabase.co', 'sb_publishable_9UZqhqNpj5-sZcUgiXz-vQ_oyzd2gHZ');
                 
@@ -183,6 +197,9 @@
                 this.nearestBss = null;
                 this.selectedRegCoords = null;
                 this.batteryId = null;
+                
+                // State untuk mode edit BSS
+                this.editingBssId = null; 
 
                 this.init();
             }
@@ -190,17 +207,16 @@
             async init() {
                 this.initMaps();
                 this.initScanner();
-                this.initListeners();
-                
-                // Mulai pantau GPS
                 this.loc.watch((p) => this.handleLocationUpdate(p));
                 
-                // Download data BSS
                 this.bssList = await this.db.fetchBSS();
                 this.renderBssLayers();
+                this.renderBssDropdown(); // Render list BSS ke dropdown
+                
+                this.initListeners();
                 this.switchTab('log');
-
-                // [BARU] Paksa cek lokasi & status setelah data BSS turun
+                
+                // Trigger lokasi awal
                 this.handleLocationUpdate(this.loc.currentPos);
             }
 
@@ -303,13 +319,8 @@
                 });
             }
 
-            // Fungsi pembantu untuk membuat poligon lingkaran presisi di Mapbox
             createGeoJSONCircle(center, radiusInMeters, points = 64) {
-                const coords = {
-                    latitude: center[1],
-                    longitude: center[0]
-                };
-
+                const coords = { latitude: center[1], longitude: center[0] };
                 const km = radiusInMeters / 1000;
                 const ret = [];
                 const distanceX = km / (111.32 * Math.cos(coords.latitude * Math.PI / 180));
@@ -322,14 +333,7 @@
                     ret.push([coords.longitude + x, coords.latitude + y]);
                 }
                 ret.push(ret[0]);
-
-                return {
-                    type: 'Feature',
-                    geometry: {
-                        type: 'Polygon',
-                        coordinates: [ret]
-                    }
-                };
+                return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [ret] } };
             }
 
             switchTab(tab) {
@@ -343,26 +347,33 @@
                 setTimeout(() => { this.mapLog.resize(); this.mapReg.resize(); }, 300);
             }
 
+            renderBssDropdown() {
+                const select = document.getElementById('select-bss');
+                select.innerHTML = '<option value="new">➕ BUAT BSS BARU</option>';
+                
+                this.bssList.forEach(bss => {
+                    const opt = document.createElement('option');
+                    opt.value = bss.id;
+                    opt.textContent = `📝 EDIT: ${bss.nama_bss.toUpperCase()}`;
+                    select.appendChild(opt);
+                });
+            }
+
             initListeners() {
+                // 1. Slider Kapasitas
+                document.getElementById('inp-range').addEventListener('input', (e) => {
+                    document.getElementById('val-range').innerText = e.target.value + "%";
+                });
+
+                // 2. Tombol Gunakan GPS
                 const btnGps = document.getElementById('btn-use-gps');
                 if (btnGps) {
                     btnGps.addEventListener('click', () => {
                         const pos = this.loc.currentPos;
                         if (pos && pos.lat) {
-                            // 1. Simpan koordinat GPS untuk form simpan
                             this.selectedRegCoords = { lng: pos.lng, lat: pos.lat };
-                            
-                            // 2. Geser Pin Merah ke posisi GPS
                             this.regMarker.setLngLat([pos.lng, pos.lat]);
-                            
-                            // 3. Zoom otomatis ke titik tersebut
-                            this.mapReg.flyTo({
-                                center: [pos.lng, pos.lat],
-                                zoom: 18,
-                                essential: true
-                            });
-                            
-                            // Efek getar di Android
+                            this.mapReg.flyTo({ center: [pos.lng, pos.lat], zoom: 18, essential: true });
                             if(navigator.vibrate) navigator.vibrate(50);
                         } else {
                             alert("Tunggu sebentar boss, GPS masih mencari lokasi...");
@@ -370,10 +381,36 @@
                     });
                 }
 
-                document.getElementById('inp-range').addEventListener('input', (e) => {
-                    document.getElementById('val-range').innerText = e.target.value + "%";
+                document.getElementById('select-bss').addEventListener('change', (e) => {
+                    const val = e.target.value;
+                    const inputName = document.getElementById('inp-bss-name');
+                    const actionCreate = document.getElementById('action-create');
+                    const actionEdit = document.getElementById('action-edit');
+
+                    if (val === 'new') {
+                        // Mode Buat Baru
+                        this.editingBssId = null;
+                        inputName.value = '';
+                        actionCreate.classList.replace('hidden', 'block');
+                        actionEdit.classList.replace('flex', 'hidden');
+                    } else {
+                        // Mode Edit
+                        this.editingBssId = val;
+                        const bss = this.bssList.find(b => b.id == val);
+                        if (bss) {
+                            inputName.value = bss.nama_bss;
+                            actionCreate.classList.replace('block', 'hidden');
+                            actionEdit.classList.replace('hidden', 'flex');
+                            
+                            // Arahkan peta dan pin ke lokasi BSS yang mau di-edit
+                            this.selectedRegCoords = { lng: bss.long, lat: bss.lat };
+                            this.regMarker.setLngLat([bss.long, bss.lat]);
+                            this.mapReg.flyTo({ center: [bss.long, bss.lat], zoom: 17, essential: true });
+                        }
+                    }
                 });
 
+                // 4. Aksi Simpan Log Baterai
                 document.getElementById('btn-save-log').addEventListener('click', async () => {
                     if (!this.batteryId) return alert("Scan QR Baterai rek!");
                     const { error } = await this.db.saveLog({
@@ -383,18 +420,45 @@
                         id_bss: this.nearestBss ? this.nearestBss.id : null
                     });
                     if (error) alert("Gagal Simpan: " + error.message);
-                    else { alert("✅ Data Tersimpan ke Surabaya BSS!"); location.reload(); }
+                    else { alert("✅ Data Tersimpan ke Database!"); location.reload(); }
                 });
 
+                // 5. Aksi Daftarkan BSS Baru
                 document.getElementById('btn-save-bss').addEventListener('click', async () => {
                     const name = document.getElementById('inp-bss-name').value;
                     const coords = this.selectedRegCoords || this.loc.currentPos;
                     if (!name) return alert("Isi jenenge stasiun disik!");
+                    
                     const { error } = await this.db.saveBSS({
                         nama_bss: name, lat: coords.lat, long: coords.lng
                     });
                     if (error) alert("Error: " + error.message);
                     else { alert("✅ BSS Baru Terdaftar!"); location.reload(); }
+                });
+
+                // 6. Aksi Simpan Edit BSS
+                document.getElementById('btn-update-bss').addEventListener('click', async () => {
+                    const name = document.getElementById('inp-bss-name').value;
+                    const coords = this.selectedRegCoords; // Koordinat yg mungkin udah digeser di peta
+                    if (!name || !this.editingBssId) return;
+
+                    const { error } = await this.db.updateBSS(this.editingBssId, {
+                        nama_bss: name, lat: coords.lat, long: coords.lng
+                    });
+                    if (error) alert("Gagal Update: " + error.message);
+                    else { alert("✅ BSS Berhasil Diupdate!"); location.reload(); }
+                });
+
+                // 7. Aksi Hapus BSS
+                document.getElementById('btn-delete-bss').addEventListener('click', async () => {
+                    if (!this.editingBssId) return;
+                    
+                    const confirmDelete = confirm("⚠️ Yakin mau menghapus stasiun BSS ini? Data tidak bisa dikembalikan!");
+                    if (confirmDelete) {
+                        const { error } = await this.db.deleteBSS(this.editingBssId);
+                        if (error) alert("Gagal Hapus: " + error.message);
+                        else { alert("🗑️ BSS Berhasil Dihapus!"); location.reload(); }
+                    }
                 });
             }
         }
