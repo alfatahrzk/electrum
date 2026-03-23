@@ -5,4 +5,5 @@ streamlit-geolocation
 folium
 streamlit-folium
 opencv-python-headless
+zxing-cpp
 Pillow

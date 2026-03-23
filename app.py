@@ -4,6 +4,7 @@ import math
 import folium
 import cv2
 import numpy as np
+import zxingcpp
 from supabase import create_client, Client
 from streamlit_geolocation import streamlit_geolocation
 from PIL import Image
@@ -106,7 +107,7 @@ class BatteryApp:
         u_lat = location.get('latitude') or self.default_lat
         u_lon = location.get('longitude') or self.default_lon
         
-        # Deteksi BSS Terdekat
+        # Cek BSS Terdekat
         bss_df = self.db.get_all_bss()
         nearest = self.loc_service.find_nearest_bss(u_lat, u_lon, bss_df)
         
@@ -117,50 +118,63 @@ class BatteryApp:
             st.warning("⚠️ Di luar radius BSS (Surabaya Default)")
             id_bss = None
 
-        # --- LOGIKA SCANNER OPENCV ---
-        img_file = st.camera_input("Ambil Foto QR Code Baterai")
+        # --- UI SCANNER ---
+        st.write("### 📸 Scan QR Baterai")
+        option = st.radio("Pilih Mode Scan:", ["Kamera Langsung", "Upload Foto (Lebih Akurat)"])
+        
+        img_file = None
+        if option == "Kamera Langsung":
+            img_file = st.camera_input("Arahkan kamera ke QR Code")
+        else:
+            img_file = st.file_uploader("Pilih foto dari Galeri (Gunakan ini jika kamera browser buram)", type=['jpg', 'png', 'jpeg'])
+
         id_baterai = ""
 
         if img_file:
-            # 1. Konversi gambar dari Streamlit ke OpenCV format
+            # Load Image
             file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
             img = cv2.imdecode(file_bytes, 1)
 
-            # 2. Preprocessing (Meningkatkan deteksi untuk HP)
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            # Memperjelas QR Code yang buram
-            sharpen_kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-            sharpen = cv2.filter2D(gray, -1, sharpen_kernel)
+            # --- ENGINE SCANNING (ZXing) ---
+            # Kita coba scan gambar asli dulu
+            results = zxingcpp.read_barcodes(img)
+            
+            if results:
+                id_baterai = results[0].text
+            else:
+                # Jika gagal, kita coba "Pertajam" gambar (Grayscale + Contrast)
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                enhanced = cv2.equalizeHist(gray) # Menyamakan kontras
+                results_enhanced = zxingcpp.read_barcodes(enhanced)
+                
+                if results_enhanced:
+                    id_baterai = results_enhanced[0].text
 
-            # 3. Deteksi QR Code menggunakan OpenCV
-            detector = cv2.QRCodeDetector()
-            data, bbox, _ = detector.detectAndDecode(sharpen)
-
-            if data:
-                id_baterai = data
+            # Tampilkan Hasil
+            if id_baterai:
                 st.success(f"⚡ ID Baterai Terdeteksi: **{id_baterai}**")
             else:
-                # Coba sekali lagi tanpa filter jika gagal
-                data_raw, _, _ = detector.detectAndDecode(img)
-                if data_raw:
-                    id_baterai = data_raw
-                    st.success(f"⚡ ID Baterai Terdeteksi: **{id_baterai}**")
-                else:
-                    st.error("Gagal membaca QR. Pastikan stiker QR tidak silau dan fokus.")
+                st.error("❌ QR tidak terbaca. Tips: Jauhkan HP sedikit (15-20cm) agar fokus, lalu pastikan tidak silau.")
 
-        # Slider & Simpan
+        # --- SLIDER & SIMPAN ---
+        st.write("---")
         persentase = st.slider("Persentase Tenaga (%)", 1, 100, 80)
-        if st.button("💾 Simpan Log"):
+        
+        if st.button("💾 Simpan Log Ke Supabase"):
             if id_baterai:
-                self.db.save_log({
-                    "id_baterai": id_baterai,
-                    "lat": u_lat, "long": u_lon,
-                    "persentase_tenaga": persentase,
-                    "id_bss": id_bss
-                })
-                st.balloons()
+                try:
+                    self.db.save_log({
+                        "id_baterai": id_baterai,
+                        "lat": u_lat, "long": u_lon,
+                        "persentase_tenaga": persentase,
+                        "id_bss": id_bss
+                    })
+                    st.balloons()
+                    st.success(f"Data {id_baterai} berhasil masuk!")
+                except Exception as e:
+                    st.error(f"Gagal simpan: {e}")
             else:
-                st.error("Scan QR dulu rek!")
+                st.error("Gagal! Scan QR-nya dulu boskuh.")
 
     def render_bss_registration(self):
         st.subheader("📍 Registrasi BSS Baru")
