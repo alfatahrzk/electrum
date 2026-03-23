@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 import math
 import folium
+import cv2
+import numpy as np
 from supabase import create_client, Client
 from streamlit_geolocation import streamlit_geolocation
 from PIL import Image
-from streamlit_camera_qr import camera_qr
 from streamlit_folium import st_folium
 
 # --- 1. DATABASE MANAGER ---
@@ -99,64 +100,67 @@ class BatteryApp:
 
     def render_input_page(self):
         st.subheader("📲 Log Penggunaan Baterai")
+        
+        # Geolocation Surabaya
         location = streamlit_geolocation()
         u_lat = location.get('latitude') or self.default_lat
         u_lon = location.get('longitude') or self.default_lon
         
-        st.write(f"📍 Lokasi Terdeteksi: `{u_lat}, {u_lon}`")
-
+        # Deteksi BSS Terdekat
         bss_df = self.db.get_all_bss()
         nearest = self.loc_service.find_nearest_bss(u_lat, u_lon, bss_df)
         
-        id_bss = None
         if nearest is not None:
-            st.info(f"✅ Terkunci di BSS: **{nearest['nama_bss']}**")
+            st.success(f"✅ Lokasi: **{nearest['nama_bss']}**")
             id_bss = nearest['id']
         else:
-            st.warning("⚠️ Anda di luar radius 50m dari BSS mana pun.")
+            st.warning("⚠️ Di luar radius BSS (Surabaya Default)")
+            id_bss = None
 
-        # --- GANTI BAGIAN SCANNER ---
-        st.write("---")
-        st.write("### 📸 Scan QR Code Baterai")
-        st.info("Posisikan QR Code di tengah kotak kamera di bawah.")
-
-        # Inisialisasi variabel ID Baterai
+        # --- LOGIKA SCANNER OPENCV ---
+        img_file = st.camera_input("Ambil Foto QR Code Baterai")
         id_baterai = ""
 
-        # Menggunakan Live Scanner Component
-        # Ini akan menampilkan live feed kamera dengan kotak target
-        qr_code_detected = camera_qr(
-            key="qr_scanner_live",
-            # Menambahkan instruksi di dalam component
-            input_text="Arahkan kamera ke QR Code Baterai"
-        )
+        if img_file:
+            # 1. Konversi gambar dari Streamlit ke OpenCV format
+            file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
+            img = cv2.imdecode(file_bytes, 1)
 
-        if qr_code_detected:
-            # qr_code_detected mengembalikan string teks dari QR
-            id_baterai = qr_code_detected
-            st.success(f"✅ ID Baterai Terdeteksi: **{id_baterai}**")
-        else:
-            st.warning("Menunggu deteksi QR Code...")
+            # 2. Preprocessing (Meningkatkan deteksi untuk HP)
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            # Memperjelas QR Code yang buram
+            sharpen_kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+            sharpen = cv2.filter2D(gray, -1, sharpen_kernel)
 
-        st.write("---")
-        # --- LANJUTAN FORM INPUT ---
+            # 3. Deteksi QR Code menggunakan OpenCV
+            detector = cv2.QRCodeDetector()
+            data, bbox, _ = detector.detectAndDecode(sharpen)
 
-        persentase = st.slider("Kapasitas Baterai (%)", 1, 100, 50)
+            if data:
+                id_baterai = data
+                st.success(f"⚡ ID Baterai Terdeteksi: **{id_baterai}**")
+            else:
+                # Coba sekali lagi tanpa filter jika gagal
+                data_raw, _, _ = detector.detectAndDecode(img)
+                if data_raw:
+                    id_baterai = data_raw
+                    st.success(f"⚡ ID Baterai Terdeteksi: **{id_baterai}**")
+                else:
+                    st.error("Gagal membaca QR. Pastikan stiker QR tidak silau dan fokus.")
 
-        if st.button("🚀 Simpan Log"):
-            # Logika validasi dan simpan tetap sama
+        # Slider & Simpan
+        persentase = st.slider("Persentase Tenaga (%)", 1, 100, 80)
+        if st.button("💾 Simpan Log"):
             if id_baterai:
-                log_data = {
+                self.db.save_log({
                     "id_baterai": id_baterai,
                     "lat": u_lat, "long": u_lon,
                     "persentase_tenaga": persentase,
                     "id_bss": id_bss
-                }
-                self.db.save_log(log_data)
+                })
                 st.balloons()
-                st.success(f"Data baterai {id_baterai} berhasil disimpan di BSS {nearest['nama_bss'] if nearest else 'Luar Radius'}!")
             else:
-                st.error("Gagal mendeteksi QR Code Baterai.")
+                st.error("Scan QR dulu rek!")
 
     def render_bss_registration(self):
         st.subheader("📍 Registrasi BSS Baru")

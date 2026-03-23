@@ -4,6 +4,5 @@ pandas
 streamlit-geolocation
 folium
 streamlit-folium
-pyzbar
+opencv-python-headless
 Pillow
-streamlit-camera-qr
