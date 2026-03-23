@@ -344,6 +344,32 @@
             }
 
             initListeners() {
+                const btnGps = document.getElementById('btn-use-gps');
+                if (btnGps) {
+                    btnGps.addEventListener('click', () => {
+                        const pos = this.loc.currentPos;
+                        if (pos && pos.lat) {
+                            // 1. Simpan koordinat GPS untuk form simpan
+                            this.selectedRegCoords = { lng: pos.lng, lat: pos.lat };
+                            
+                            // 2. Geser Pin Merah ke posisi GPS
+                            this.regMarker.setLngLat([pos.lng, pos.lat]);
+                            
+                            // 3. Zoom otomatis ke titik tersebut
+                            this.mapReg.flyTo({
+                                center: [pos.lng, pos.lat],
+                                zoom: 18,
+                                essential: true
+                            });
+                            
+                            // Efek getar di Android
+                            if(navigator.vibrate) navigator.vibrate(50);
+                        } else {
+                            alert("Tunggu sebentar boss, GPS masih mencari lokasi...");
+                        }
+                    });
+                }
+
                 document.getElementById('inp-range').addEventListener('input', (e) => {
                     document.getElementById('val-range').innerText = e.target.value + "%";
                 });
