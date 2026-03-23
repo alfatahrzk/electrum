@@ -126,8 +126,7 @@
         // --- SERVICE: LOCATION ---
         class LocationService {
             constructor() {
-                // Koordinat Default Surabaya (Tetap ada sebagai cadangan)
-                this.currentPos = { lat: -7.287, lng: 112.74 }; 
+                this.currentPos = { lat: -7.287, lng: 112.74 }; // Surabaya Default
             }
 
             watch(callback) {
@@ -137,7 +136,7 @@
                 }
 
                 const options = {
-                    enableHighAccuracy: true, // WAJIB: Agar pakai GPS asli, bukan cuma IP Internet
+                    enableHighAccuracy: true, // Wajib aktif agar GPS presisi
                     timeout: 10000,
                     maximumAge: 0
                 };
@@ -152,11 +151,22 @@
                     },
                     (err) => {
                         console.warn(`ERROR GPS (${err.code}): ${err.message}`);
-                        // Jika error, kita tetap jalankan callback dengan posisi default
+                        // Fallback ke posisi default Surabaya jika GPS diblokir
                         callback(this.currentPos);
                     },
                     options
                 );
+            }
+
+            // [INI FUNGSI YANG TADI KEHAPUS] - Logika Haversine Formula untuk hitung radius
+            getDistance(lat1, lon1, lat2, lon2) {
+                const R = 6371e3; // Radius bumi dalam meter
+                const p1 = lat1 * Math.PI/180;
+                const p2 = lat2 * Math.PI/180;
+                const dp = (lat2-lat1) * Math.PI/180;
+                const dl = (lon2-lon1) * Math.PI/180;
+                const a = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+                return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
             }
         }
 
@@ -181,10 +191,17 @@
                 this.initMaps();
                 this.initScanner();
                 this.initListeners();
+                
+                // Mulai pantau GPS
                 this.loc.watch((p) => this.handleLocationUpdate(p));
+                
+                // Download data BSS
                 this.bssList = await this.db.fetchBSS();
                 this.renderBssLayers();
                 this.switchTab('log');
+
+                // [BARU] Paksa cek lokasi & status setelah data BSS turun
+                this.handleLocationUpdate(this.loc.currentPos);
             }
 
             initMaps() {
@@ -219,27 +236,37 @@
             }
 
             handleLocationUpdate(pos) {
-                // 1. Ubah warna status GPS jadi Hijau (Aktif)
+                // 1. Indikator lampu GPS di pojok kanan atas jadi Hijau
                 const gpsDot = document.getElementById('gps-status');
-                if(gpsDot) gpsDot.classList.replace('bg-red-500', 'bg-emerald-500');
+                if (gpsDot) gpsDot.classList.replace('bg-red-500', 'bg-emerald-500');
 
-                // 2. Update Marker Biru
-                if (this.userMarker) {
-                    this.userMarker.setLngLat([pos.lng, pos.lat]);
-                }
+                // 2. Pindahkan marker user & geser kamera peta
+                if (this.userMarker) this.userMarker.setLngLat([pos.lng, pos.lat]);
+                if (this.mapLog) this.mapLog.flyTo({ center: [pos.lng, pos.lat], speed: 0.5 });
 
-                // 3. GERAKKAN PETA (Penting!)
-                // Gunakan flyTo agar ada efek transisi halus ke posisi asli kamu
-                if (this.mapLog) {
-                    this.mapLog.flyTo({
-                        center: [pos.lng, pos.lat],
-                        essential: true,
-                        zoom: 15 // Zoom in sedikit agar lebih detail
+                // 3. Hitung Jarak ke BSS
+                this.nearestBss = null;
+                if (this.bssList && this.bssList.length > 0) {
+                    this.bssList.forEach(bss => {
+                        // Pastikan di database Supabase kamu nama kolomnya 'lat' dan 'long'
+                        const d = this.loc.getDistance(pos.lat, pos.lng, bss.lat, bss.long);
+                        if (d <= 50) this.nearestBss = bss;
                     });
                 }
 
-                // 4. Update Jarak BSS Terdekat
-                this.checkProximity(pos);
+                // 4. Update UI Text Status
+                const statusEl = document.getElementById('status-bss');
+                if (statusEl) {
+                    if (this.nearestBss) {
+                        statusEl.innerText = `📍 BSS TERKUNCI: ${this.nearestBss.nama_bss}`;
+                        // Bikin kotaknya jadi hijau terang
+                        statusEl.className = "py-3 px-4 rounded-xl bg-emerald-900/50 border border-emerald-500 text-sm font-bold text-center text-emerald-400";
+                    } else {
+                        statusEl.innerText = "⚠️ DI LUAR RADIUS BSS (SURABAYA)";
+                        // Balik ke kotak abu-abu
+                        statusEl.className = "py-3 px-4 rounded-xl bg-slate-900/50 border border-slate-700 text-sm font-bold text-center text-slate-400";
+                    }
+                }
             }
 
             renderBssLayers() {
