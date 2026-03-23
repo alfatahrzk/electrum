@@ -121,25 +121,37 @@
         // --- SERVICE: LOCATION ---
         class LocationService {
             constructor() {
-                this.currentPos = { lat: -7.287, lng: 112.74 }; // Surabaya Default
+                // Koordinat Default Surabaya (Tetap ada sebagai cadangan)
+                this.currentPos = { lat: -7.287, lng: 112.74 }; 
             }
+
             watch(callback) {
-                if (navigator.geolocation) {
-                    navigator.geolocation.watchPosition(
-                        (p) => {
-                            this.currentPos = { lat: p.coords.latitude, lng: p.coords.longitude };
-                            callback(this.currentPos);
-                        },
-                        null, { enableHighAccuracy: true }
-                    );
+                if (!navigator.geolocation) {
+                    console.error("Browser tidak mendukung Geolocation");
+                    return;
                 }
-            }
-            getDistance(lat1, lon1, lat2, lon2) {
-                const R = 6371e3;
-                const p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
-                const dp = (lat2-lat1)*Math.PI/180, dl = (lon2-lon1)*Math.PI/180;
-                const a = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
-                return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+                const options = {
+                    enableHighAccuracy: true, // WAJIB: Agar pakai GPS asli, bukan cuma IP Internet
+                    timeout: 10000,
+                    maximumAge: 0
+                };
+
+                navigator.geolocation.watchPosition(
+                    (pos) => {
+                        this.currentPos = { 
+                            lat: pos.coords.latitude, 
+                            lng: pos.coords.longitude 
+                        };
+                        callback(this.currentPos);
+                    },
+                    (err) => {
+                        console.warn(`ERROR GPS (${err.code}): ${err.message}`);
+                        // Jika error, kita tetap jalankan callback dengan posisi default
+                        callback(this.currentPos);
+                    },
+                    options
+                );
             }
         }
 
@@ -202,19 +214,27 @@
             }
 
             handleLocationUpdate(pos) {
-                document.getElementById('gps-status').classList.replace('bg-red-500', 'bg-emerald-500');
-                this.userMarker.setLngLat([pos.lng, pos.lat]);
-                
-                // Cari BSS Terdekat
-                this.nearestBss = null;
-                this.bssList.forEach(bss => {
-                    const d = this.loc.getDistance(pos.lat, pos.lng, bss.lat, bss.long);
-                    if (d <= 50) this.nearestBss = bss;
-                });
+                // 1. Ubah warna status GPS jadi Hijau (Aktif)
+                const gpsDot = document.getElementById('gps-status');
+                if(gpsDot) gpsDot.classList.replace('bg-red-500', 'bg-emerald-500');
 
-                const statusEl = document.getElementById('status-bss');
-                statusEl.innerText = this.nearestBss ? `📍 BSS TERKUNCI: ${this.nearestBss.nama_bss}` : "⚠️ DI LUAR RADIUS BSS (SURABAYA)";
-                statusEl.classList.toggle('text-emerald-400', !!this.nearestBss);
+                // 2. Update Marker Biru
+                if (this.userMarker) {
+                    this.userMarker.setLngLat([pos.lng, pos.lat]);
+                }
+
+                // 3. GERAKKAN PETA (Penting!)
+                // Gunakan flyTo agar ada efek transisi halus ke posisi asli kamu
+                if (this.mapLog) {
+                    this.mapLog.flyTo({
+                        center: [pos.lng, pos.lat],
+                        essential: true,
+                        zoom: 15 // Zoom in sedikit agar lebih detail
+                    });
+                }
+
+                // 4. Update Jarak BSS Terdekat
+                this.checkProximity(pos);
             }
 
             renderBssLayers() {
