@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Electrum Pro - Surabaya</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.css" rel="stylesheet">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.js"></script>
+
+    <style>
+        /* Modern Scrollbar */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+
+        /* User Glow Marker ala Gojek/Google Maps */
+        .user-marker {
+            width: 18px; height: 18px;
+            background-color: #3b82f6;
+            border: 3px solid white;
+            border-radius: 50%;
+            box-shadow: 0 0 15px #3b82f6;
+        }
+        .user-marker::after {
+            content: ''; width: 100%; height: 100%;
+            position: absolute; background: rgba(59, 130, 246, 0.4);
+            border-radius: 50%; animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(3); opacity: 0; }
+        }
+
+        /* Custom Slider */
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 20px; width: 20px;
+            border-radius: 50%; background: #3b82f6; cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-[#0f172a] text-slate-200 min-h-screen">
+
+    <div class="max-w-md mx-auto p-4 space-y-6">
+        <header class="flex justify-between items-center py-4">
+            <div>
+                <h1 class="text-2xl font-black text-white tracking-tighter italic">ELECTRUM <span class="text-blue-500">PRO</span></h1>
+                <p class="text-[10px] text-slate-500 font-mono">SURABAYA OPS CENTER v2.0</p>
+            </div>
+            <div class="bg-slate-800 p-2 rounded-lg border border-slate-700">
+                <div id="gps-status" class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
+            </div>
+        </header>
+
+        <div class="flex bg-slate-800/50 backdrop-blur-md rounded-2xl p-1.5 border border-slate-700">
+            <button onclick="app.switchTab('log')" id="tab-log" class="flex-1 py-3 rounded-xl text-sm font-bold transition-all">Scan Baterai</button>
+            <button onclick="app.switchTab('reg')" id="tab-reg" class="flex-1 py-3 rounded-xl text-sm font-bold transition-all">Registrasi BSS</button>
+        </div>
+
+        <section id="section-log" class="space-y-4">
+            <div class="relative h-56 w-full rounded-2xl overflow-hidden border border-slate-700 shadow-2xl">
+                <div id="map-log" class="h-full w-full"></div>
+            </div>
+
+            <div class="bg-slate-800/80 rounded-2xl p-4 border border-slate-700 shadow-xl">
+                <div id="reader" class="rounded-xl overflow-hidden grayscale contrast-125"></div>
+                <div id="qr-display" class="hidden mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl text-center">
+                    <span class="text-xs text-slate-400 block mb-1">ID TERDETEKSI</span>
+                    <span id="id-text" class="font-mono text-lg font-bold text-blue-400">---</span>
+                </div>
+            </div>
+
+            <div class="bg-slate-800/80 rounded-3xl p-6 border border-slate-700 space-y-6">
+                <div class="space-y-3">
+                    <div class="flex justify-between items-end">
+                        <label class="text-sm font-medium text-slate-400">Kapasitas Tenaga</label>
+                        <span id="val-range" class="text-2xl font-black text-white">80%</span>
+                    </div>
+                    <input type="range" id="inp-range" min="1" max="100" value="80" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <div id="status-bss" class="py-2 px-4 rounded-full bg-slate-900/50 border border-slate-700 text-[11px] text-center text-slate-500">
+                    Menunggu GPS...
+                </div>
+
+                <button id="btn-save-log" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-blue-900/20 transition-all active:scale-95 flex justify-center items-center gap-2">
+                    🚀 UPDATE STATUS BATERAI
+                </button>
+            </div>
+        </section>
+
+        <section id="section-reg" class="hidden space-y-4">
+            <div class="h-80 w-full rounded-2xl overflow-hidden border border-slate-700 shadow-2xl">
+                <div id="map-reg" class="h-full w-full"></div>
+            </div>
+            <div class="bg-slate-800 p-6 rounded-3xl border border-slate-700 space-y-4">
+                <input type="text" id="inp-bss-name" placeholder="Nama BSS Baru (e.g. BSS Gubeng 01)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-emerald-500 outline-none">
+                <button id="btn-save-bss" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-2xl shadow-lg transition-all active:scale-95">
+                    📍 KONFIRMASI TITIK BSS
+                </button>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        // --- SERVICE: DATABASE ---
+        class SupabaseService {
+            constructor(url, key) {
+                this.client = supabase.createClient(url, key);
+            }
+            async saveLog(data) { return await this.client.from('battery_logs').insert([data]); }
+            async saveBSS(data) { return await this.client.from('bss_locations').insert([data]); }
+            async fetchBSS() {
+                const { data } = await this.client.from('bss_locations').select('*');
+                return data || [];
+            }
+        }
+
+        // --- SERVICE: LOCATION ---
+        class LocationService {
+            constructor() {
+                this.currentPos = { lat: -7.287, lng: 112.74 }; // Surabaya Default
+            }
+            watch(callback) {
+                if (navigator.geolocation) {
+                    navigator.geolocation.watchPosition(
+                        (p) => {
+                            this.currentPos = { lat: p.coords.latitude, lng: p.coords.longitude };
+                            callback(this.currentPos);
+                        },
+                        null, { enableHighAccuracy: true }
+                    );
+                }
+            }
+            getDistance(lat1, lon1, lat2, lon2) {
+                const R = 6371e3;
+                const p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
+                const dp = (lat2-lat1)*Math.PI/180, dl = (lon2-lon1)*Math.PI/180;
+                const a = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+                return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            }
+        }
+
+        // --- MAIN APP CONTROLLER ---
+        class ElectrumApp {
+            constructor() {
+                // Konfigurasi Kredensial
+                mapboxgl.accessToken = 'pk.eyJ1IjoiYWxmYXRhaHJ6ayIsImEiOiJjbW4zZjk1czgxY2NrMm9xNW1xeDNjNGplIn0.kTnR7XkvTxRPM_Te-rPZnw'; 
+                this.db = new SupabaseService('https://zjpnsqixrrjdjpwdtrsu.supabase.co', 'sb_publishable_9UZqhqNpj5-sZcUgiXz-vQ_oyzd2gHZ');
+                
+                this.loc = new LocationService();
+                this.scanner = new Html5Qrcode("reader");
+                this.bssList = [];
+                this.nearestBss = null;
+                this.selectedRegCoords = null;
+                this.batteryId = null;
+
+                this.init();
+            }
+
+            async init() {
+                this.initMaps();
+                this.initScanner();
+                this.initListeners();
+                this.loc.watch((p) => this.handleLocationUpdate(p));
+                this.bssList = await this.db.fetchBSS();
+                this.renderBssLayers();
+                this.switchTab('log');
+            }
+
+            initMaps() {
+                // Map Log (Dark Style)
+                this.mapLog = new mapboxgl.Map({
+                    container: 'map-log', style: 'mapbox://styles/mapbox/navigation-night-v1',
+                    center: [this.loc.currentPos.lng, this.loc.currentPos.lat], zoom: 14
+                });
+                const el = document.createElement('div'); el.className = 'user-marker';
+                this.userMarker = new mapboxgl.Marker(el).setLngLat([this.loc.currentPos.lng, this.loc.currentPos.lat]).addTo(this.mapLog);
+
+                // Map Reg
+                this.mapReg = new mapboxgl.Map({
+                    container: 'map-reg', style: 'mapbox://styles/mapbox/navigation-night-v1',
+                    center: [this.loc.currentPos.lng, this.loc.currentPos.lat], zoom: 15
+                });
+                this.regMarker = new mapboxgl.Marker({ color: '#ef4444' }).setLngLat([this.loc.currentPos.lng, this.loc.currentPos.lat]).addTo(this.mapReg);
+                this.mapReg.on('click', (e) => {
+                    this.selectedRegCoords = e.lngLat;
+                    this.regMarker.setLngLat(e.lngLat);
+                });
+            }
+
+            initScanner() {
+                const config = { fps: 20, qrbox: { width: 220, height: 220 } };
+                this.scanner.start({ facingMode: "environment" }, config, (text) => {
+                    this.batteryId = text;
+                    document.getElementById('id-text').innerText = text;
+                    document.getElementById('qr-display').classList.remove('hidden');
+                    if(navigator.vibrate) navigator.vibrate(100);
+                }).catch(err => console.error("Kamera Error:", err));
+            }
+
+            handleLocationUpdate(pos) {
+                document.getElementById('gps-status').classList.replace('bg-red-500', 'bg-emerald-500');
+                this.userMarker.setLngLat([pos.lng, pos.lat]);
+                
+                // Cari BSS Terdekat
+                this.nearestBss = null;
+                this.bssList.forEach(bss => {
+                    const d = this.loc.getDistance(pos.lat, pos.lng, bss.lat, bss.long);
+                    if (d <= 50) this.nearestBss = bss;
+                });
+
+                const statusEl = document.getElementById('status-bss');
+                statusEl.innerText = this.nearestBss ? `📍 BSS TERKUNCI: ${this.nearestBss.nama_bss}` : "⚠️ DI LUAR RADIUS BSS (SURABAYA)";
+                statusEl.classList.toggle('text-emerald-400', !!this.nearestBss);
+            }
+
+            renderBssLayers() {
+                this.mapLog.on('load', () => {
+                    this.bssList.forEach((bss, i) => {
+                        // 1. Tambahkan Marker (Titik Tengah)
+                        new mapboxgl.Marker({ color: '#10b981', scale: 0.6 })
+                            .setLngLat([bss.long, bss.lat])
+                            .setPopup(new mapboxgl.Popup().setHTML(`<b class="text-slate-900">${bss.nama_bss}</b>`))
+                            .addTo(this.mapLog);
+
+                        // 2. Tambahkan Layer Radius 50 Meter
+                        const sourceId = `radius-src-${i}`;
+                        
+                        // Buat data GeoJSON untuk lingkaran
+                        this.mapLog.addSource(sourceId, {
+                            type: 'geojson',
+                            data: this.createGeoJSONCircle([bss.long, bss.lat], 50) // 50 meter
+                        });
+
+                        // Gambar poligon lingkaran ke peta
+                        this.mapLog.addLayer({
+                            id: `radius-layer-${i}`,
+                            type: 'fill',
+                            source: sourceId,
+                            layout: {},
+                            paint: {
+                                'fill-color': '#10b981',
+                                'fill-opacity': 0.15, // Transparansi area
+                                'fill-outline-color': '#10b981'
+                            }
+                        });
+                    });
+                });
+            }
+
+            // Fungsi pembantu untuk membuat poligon lingkaran presisi di Mapbox
+            createGeoJSONCircle(center, radiusInMeters, points = 64) {
+                const coords = {
+                    latitude: center[1],
+                    longitude: center[0]
+                };
+
+                const km = radiusInMeters / 1000;
+                const ret = [];
+                const distanceX = km / (111.32 * Math.cos(coords.latitude * Math.PI / 180));
+                const distanceY = km / 110.57;
+
+                for (let i = 0; i < points; i++) {
+                    const theta = (i / points) * (2 * Math.PI);
+                    const x = distanceX * Math.cos(theta);
+                    const y = distanceY * Math.sin(theta);
+                    ret.push([coords.longitude + x, coords.latitude + y]);
+                }
+                ret.push(ret[0]);
+
+                return {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Polygon',
+                        coordinates: [ret]
+                    }
+                };
+            }
+
+            switchTab(tab) {
+                const isLog = tab === 'log';
+                document.getElementById('section-log').classList.toggle('hidden', !isLog);
+                document.getElementById('section-reg').classList.toggle('hidden', isLog);
+                
+                document.getElementById('tab-log').className = isLog ? "flex-1 py-3 rounded-xl bg-blue-600 text-white shadow-lg" : "flex-1 py-3 rounded-xl text-slate-500";
+                document.getElementById('tab-reg').className = !isLog ? "flex-1 py-3 rounded-xl bg-emerald-600 text-white shadow-lg" : "flex-1 py-3 rounded-xl text-slate-500";
+                
+                setTimeout(() => { this.mapLog.resize(); this.mapReg.resize(); }, 300);
+            }
+
+            initListeners() {
+                document.getElementById('inp-range').addEventListener('input', (e) => {
+                    document.getElementById('val-range').innerText = e.target.value + "%";
+                });
+
+                document.getElementById('btn-save-log').addEventListener('click', async () => {
+                    if (!this.batteryId) return alert("Scan QR Baterai rek!");
+                    const { error } = await this.db.saveLog({
+                        id_baterai: this.batteryId,
+                        lat: this.loc.currentPos.lat, long: this.loc.currentPos.lng,
+                        persentase_tenaga: parseInt(document.getElementById('inp-range').value),
+                        id_bss: this.nearestBss ? this.nearestBss.id : null
+                    });
+                    if (error) alert("Gagal Simpan: " + error.message);
+                    else { alert("✅ Data Tersimpan ke Surabaya BSS!"); location.reload(); }
+                });
+
+                document.getElementById('btn-save-bss').addEventListener('click', async () => {
+                    const name = document.getElementById('inp-bss-name').value;
+                    const coords = this.selectedRegCoords || this.loc.currentPos;
+                    if (!name) return alert("Isi jenenge stasiun disik!");
+                    const { error } = await this.db.saveBSS({
+                        nama_bss: name, lat: coords.lat, long: coords.lng
+                    });
+                    if (error) alert("Error: " + error.message);
+                    else { alert("✅ BSS Baru Terdaftar!"); location.reload(); }
+                });
+            }
+        }
+
+        const app = new ElectrumApp();
+    </script>
+</body>
+</html>
