@@ -5,7 +5,7 @@ import folium
 from supabase import create_client, Client
 from streamlit_geolocation import streamlit_geolocation
 from PIL import Image
-from pyzbar.pyzbar import decode
+from streamlit_camera_qr import camera_qr
 from streamlit_folium import st_folium
 
 # --- 1. DATABASE MANAGER ---
@@ -115,20 +115,36 @@ class BatteryApp:
         else:
             st.warning("⚠️ Anda di luar radius 50m dari BSS mana pun.")
 
-        img_file = st.camera_input("Ambil Foto QR Baterai")
+        # --- GANTI BAGIAN SCANNER ---
+        st.write("---")
+        st.write("### 📸 Scan QR Code Baterai")
+        st.info("Posisikan QR Code di tengah kotak kamera di bawah.")
+
+        # Inisialisasi variabel ID Baterai
         id_baterai = ""
-        if img_file:
-            img = Image.open(img_file)
-            decoded = decode(img)
-            if decoded:
-                id_baterai = decoded[0].data.decode("utf-8")
-                st.success(f"ID Baterai Terdeteksi: **{id_baterai}**")
-            else:
-                st.error("Gagal membaca QR. Pastikan cahaya cukup.")
+
+        # Menggunakan Live Scanner Component
+        # Ini akan menampilkan live feed kamera dengan kotak target
+        qr_code_detected = camera_qr(
+            key="qr_scanner_live",
+            # Menambahkan instruksi di dalam component
+            input_text="Arahkan kamera ke QR Code Baterai"
+        )
+
+        if qr_code_detected:
+            # qr_code_detected mengembalikan string teks dari QR
+            id_baterai = qr_code_detected
+            st.success(f"✅ ID Baterai Terdeteksi: **{id_baterai}**")
+        else:
+            st.warning("Menunggu deteksi QR Code...")
+
+        st.write("---")
+        # --- LANJUTAN FORM INPUT ---
 
         persentase = st.slider("Kapasitas Baterai (%)", 1, 100, 50)
 
         if st.button("🚀 Simpan Log"):
+            # Logika validasi dan simpan tetap sama
             if id_baterai:
                 log_data = {
                     "id_baterai": id_baterai,
@@ -138,9 +154,9 @@ class BatteryApp:
                 }
                 self.db.save_log(log_data)
                 st.balloons()
-                st.success("Data berhasil disimpan!")
+                st.success(f"Data baterai {id_baterai} berhasil disimpan di BSS {nearest['nama_bss'] if nearest else 'Luar Radius'}!")
             else:
-                st.error("QR Code wajib di-scan.")
+                st.error("Gagal mendeteksi QR Code Baterai.")
 
     def render_bss_registration(self):
         st.subheader("📍 Registrasi BSS Baru")
