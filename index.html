@@ -73,13 +73,25 @@
             </div>
 
             <div class="bg-slate-800/80 rounded-3xl p-6 border border-slate-700 space-y-6">
-                <div class="space-y-3">
-                    <div class="flex justify-between items-end">
-                        <label class="text-sm font-medium text-slate-400">Kapasitas Tenaga</label>
-                        <span id="val-range" class="text-2xl font-black text-white">80%</span>
+                <div class="space-y-5">
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-end">
+                            <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">🔴 Baterai Dilepas</label>
+                            <span id="val-range-drop" class="text-xl font-black text-red-400">20%</span>
+                        </div>
+                        <input type="range" id="inp-range-drop" min="1" max="100" value="20" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-red-500">
                     </div>
-                    <input type="range" id="inp-range" min="1" max="100" value="80" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-end">
+                            <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">🟢 Baterai Didapat <span class="text-[10px] font-normal italic">(Sesuai QR)</span></label>
+                            <span id="val-range-pick" class="text-xl font-black text-emerald-400">100%</span>
+                        </div>
+                        <input type="range" id="inp-range-pick" min="1" max="100" value="100" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+                    </div>
                 </div>
+
+
 
                 <div id="status-bss" class="py-2 px-4 rounded-full bg-slate-900/50 border border-slate-700 text-[11px] text-center text-slate-500">
                     Menunggu GPS...
@@ -361,8 +373,11 @@
 
             initListeners() {
                 // 1. Slider Kapasitas
-                document.getElementById('inp-range').addEventListener('input', (e) => {
-                    document.getElementById('val-range').innerText = e.target.value + "%";
+                document.getElementById('inp-range-drop').addEventListener('input', (e) => {
+                    document.getElementById('val-range-drop').innerText = e.target.value + "%";
+                });
+                document.getElementById('inp-range-pick').addEventListener('input', (e) => {
+                    document.getElementById('val-range-pick').innerText = e.target.value + "%";
                 });
 
                 // 2. Tombol Gunakan GPS
@@ -412,15 +427,20 @@
 
                 // 4. Aksi Simpan Log Baterai
                 document.getElementById('btn-save-log').addEventListener('click', async () => {
-                    if (!this.batteryId) return alert("Scan QR Baterai rek!");
+                    if (!this.batteryId) return alert("Scan QR Baterai Baru yang kamu dapat rek!");
+                    
                     const { error } = await this.db.saveLog({
-                        id_baterai: this.batteryId,
-                        lat: this.loc.currentPos.lat, long: this.loc.currentPos.lng,
-                        persentase_tenaga: parseInt(document.getElementById('inp-range').value),
+                        id_baterai: this.batteryId, 
+                        lat: this.loc.currentPos.lat, 
+                        long: this.loc.currentPos.lng,
+                        // Masukkan dua data persentase ke database
+                        persentase_drop: parseInt(document.getElementById('inp-range-drop').value),
+                        persentase_pick: parseInt(document.getElementById('inp-range-pick').value),
                         id_bss: this.nearestBss ? this.nearestBss.id : null
                     });
-                    if (error) alert("Gagal Simpan: " + error.message);
-                    else { alert("✅ Data Tersimpan ke Database!"); location.reload(); }
+                    
+                    if (error) alert("Gagal Simpan: " + error.message); 
+                    else { alert("✅ Data Swap Tersimpan Lengkap!"); location.reload(); }
                 });
 
                 // 5. Aksi Daftarkan BSS Baru
