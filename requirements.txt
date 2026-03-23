@@ -1,0 +1,8 @@
+streamlit
+supabase
+pandas
+streamlit-geolocation
+folium
+streamlit-folium
+pyzbar
+Pillow
