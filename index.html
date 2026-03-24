@@ -18,6 +18,7 @@
     <meta name="twitter:title" content="ELECTRUM PRO">
     <meta name="twitter:description" content="Aplikasi navigasi BSS dan manajemen baterai Electrum.">
     <meta name="twitter:image" content="https://static.electrum.id/v3/favicon.svg?format=auto&width=64&quality=75">
+
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -35,6 +36,21 @@
             border-radius: 50%; background: #3be6f6; cursor: pointer;
         }
     </style>
+
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <script>
+    // Daftarkan Service Worker
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js')
+            .then(reg => console.log('PWA Ready Bosskuh!'))
+            .catch(err => console.log('PWA Gagal:', err));
+        });
+    }
+    </script>
 </head>
 <body class="bg-[#0f172a] text-slate-200 min-h-screen">
 
