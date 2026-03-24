@@ -95,30 +95,33 @@
                 </div>
             </div>
 
-            <div class="bg-slate-800/80 border border-slate-700 rounded-3xl p-6 space-y-4">
-                <div class="text-center">
-                    <h3 class="text-sm font-bold text-white uppercase tracking-widest">🕒 Cek Jam Operasional</h3>
-                    <p class="text-[10px] text-slate-500">Ketik jam untuk melihat prediksi ketersediaan</p>
+            <div class="bg-slate-800/80 border border-slate-700 rounded-[2.5rem] p-8 space-y-6 shadow-2xl">
+                <div class="text-center space-y-1">
+                    <h3 class="text-sm font-black text-white uppercase tracking-[0.3em]">🕒 TIME ANALYTICS</h3>
+                    <p class="text-[10px] text-slate-500 font-medium">Prediksi ketersediaan berdasarkan jam operasional</p>
                 </div>
 
-                <div class="flex items-center justify-center gap-4 bg-slate-900/50 p-4 rounded-2xl border border-slate-700">
-                    <div class="text-center">
+                <div class="flex items-center justify-center gap-6 bg-slate-900/50 p-6 rounded-[2rem] border border-slate-800/50 shadow-inner">
+                    <div class="flex flex-col items-center gap-2">
                         <input type="number" id="inp-hour-manual" min="0" max="23" 
-                            class="w-16 bg-slate-800 border-2 border-slate-700 rounded-xl p-2 text-2xl font-black text-blue-400 text-center focus:border-blue-500 outline-none">
+                            class="w-24 h-24 bg-slate-800/80 border-2 border-slate-700 rounded-3xl text-4xl font-black text-blue-400 text-center focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none shadow-2xl transition-all">
+                        <span class="text-[10px] font-black text-slate-500 tracking-[0.2em]">JAM</span>
                     </div>
-                    <div class="text-3xl font-black text-slate-700">:</div>
-                    <div class="text-center">
-                        <input type="number" id="inp-min-manual" min="0" max="59"
-                            class="w-16 bg-slate-800 border-2 border-slate-700 rounded-xl p-2 text-2xl font-black text-blue-400 text-center focus:border-blue-500 outline-none">
-                        <p class="text-[9px] text-slate-500 mt-1 font-bold">MENIT</p>
+
+                    <div class="text-4xl font-black text-slate-700 mb-6">:</div>
+
+                    <div class="flex flex-col items-center gap-2">
+                        <input type="number" id="inp-min-manual" min="0" max="59" 
+                            class="w-24 h-24 bg-slate-800/80 border-2 border-slate-700 rounded-3xl text-4xl font-black text-blue-400 text-center focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none shadow-2xl transition-all">
+                        <span class="text-[10px] font-black text-slate-500 tracking-[0.2em]">MENIT</span>
                     </div>
                 </div>
 
-                <button id="btn-cek-prediksi" class="w-full bg-slate-700 hover:bg-blue-600 text-white font-bold py-3 rounded-xl transition-all active:scale-95 text-xs">
+                <button id="btn-cek-prediksi" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-5 rounded-2xl shadow-lg shadow-blue-900/20 transition-all active:scale-95 text-xs tracking-widest uppercase">
                     🔍 ANALISIS JADWAL INI
                 </button>
 
-                <div id="list-rekomendasi-bss" class="space-y-2 pt-2">
+                <div id="list-rekomendasi-bss" class="space-y-3 pt-2">
                     </div>
             </div>
         </section>
