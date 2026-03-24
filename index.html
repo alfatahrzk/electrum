@@ -11,7 +11,8 @@
     <meta property="og:title" content="ELECTRUM PRO - Komunitas Surabaya">
     <meta property="og:description" content="Pantau ketersediaan baterai, prediksi jadwal swap, dan lacak riwayat baterai Electrum secara real-time.">
     <meta property="og:image" content="https://static.electrum.id/v3/favicon.svg?format=auto&width=64&quality=75">
-    <meta property="og:url" content="https://electrum-pro.vercel.app">
+    <meta property="og:url" content="https://electrum-pro.vercel.app/index.html">
+    <meta name="theme-color" content="#67bed9">
 
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="ELECTRUM PRO">
@@ -31,7 +32,7 @@
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
         input[type=range]::-webkit-slider-thumb {
             -webkit-appearance: none; height: 20px; width: 20px;
-            border-radius: 50%; background: #3b82f6; cursor: pointer;
+            border-radius: 50%; background: #3be6f6; cursor: pointer;
         }
     </style>
 </head>
@@ -39,13 +40,20 @@
 
     <div class="max-w-md mx-auto p-4 space-y-6">
         <header class="flex justify-between items-center py-4 border-b border-slate-800">
-            <div>
-                <h1 class="text-2xl font-black text-white tracking-tighter italic">ELECTRUM <span class="text-blue-500">PRO</span></h1>
-                <p id="txt-role-badge" class="text-[10px] font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full inline-block mt-1">GUEST (PUBLIK)</p>
+            <div class="flex items-center gap-3">
+                <img src="https://static.electrum.id/v3/favicon.svg?format=auto&width=64&quality=75" alt="Logo" class="w-10 h-10 rounded-xl shadow-lg">
+                <div>
+                    <h1 class="text-2xl font-black text-white italic tracking-tighter leading-none">
+                        ELECTRUM <span class="text-blue-500">PRO</span>
+                    </h1>
+                    <p id="txt-role-badge" class="text-[9px] font-black text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full inline-block mt-1 uppercase tracking-widest">
+                        GUEST (PUBLIK)
+                    </p>
+                </div>
             </div>
-            <div>
-                <a href="login.html" id="btn-show-login" class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-2 px-4 rounded-xl transition-all">Login</a>
-                <button id="btn-logout" class="hidden bg-red-600 hover:bg-red-500 text-white text-xs font-bold py-2 px-4 rounded-xl transition-all">Logout</button>
+            <div class="flex gap-2">
+                <a href="login.html" id="btn-show-login" class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-2 px-4 rounded-xl transition-all shadow-lg shadow-blue-900/20">Login</a>
+                <button id="btn-logout" class="hidden bg-red-600 hover:bg-red-500 text-white text-xs font-bold py-2 px-4 rounded-xl transition-all shadow-lg shadow-red-900/20">Logout</button>
             </div>
         </header>
 
