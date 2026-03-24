@@ -203,6 +203,17 @@
                 }
             }
 
+            calculateDistance(lat1, lon1, lat2, lon2) {
+                const R = 6371e3; // Radius bumi dalam meter
+                const dLat = (lat2 - lat1) * Math.PI / 180;
+                const dLon = (lon2 - lon1) * Math.PI / 180;
+                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                          Math.sin(dLon/2) * Math.sin(dLon/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                return R * c; // Jarak dalam meter
+            }
+
             switchTab(tab) {
                 ['log', 'pred', 'analisis', 'admin-bss', 'admin-bat'].forEach(id => {
                     document.getElementById(`section-${id}`).classList.add('hidden');
@@ -477,57 +488,74 @@
 
                 // --- SIMPAN LOG BATERAI ---
                 document.getElementById('btn-save-log').addEventListener('click', async () => {
-                    if (!this.batteryId) return alert("Scan dulu rek!");
-                    
+                    if (!this.batteryId) return alert("Scan QR Baterai dulu!");
+
                     const btn = document.getElementById('btn-save-log');
-                    btn.innerText = "⏳ MENGAMBIL GPS...";
+                    btn.innerText = "⏳ MENGUNCI LOKASI BSS...";
                     btn.disabled = true;
 
-                    // 1. Ambil Lokasi GPS (Wajib agar tidak error NULL)
+                    // 1. Ambil Koordinat GPS Real-time
                     const getPos = () => {
-                        return new Promise((resolve) => {
+                        return new Promise((resolve, reject) => {
                             navigator.geolocation.getCurrentPosition(
-                                (pos) => resolve({ lat: pos.coords.latitude, long: pos.coords.longitude }),
-                                (err) => {
-                                    console.log("GPS Gagal, kirim koordinat 0");
-                                    resolve({ lat: 0, long: 0 }); // Fallback agar tidak NULL
-                                },
+                                (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+                                (err) => reject(err),
                                 { enableHighAccuracy: true }
                             );
                         });
                     };
 
-                    const coords = await getPos();
+                    try {
+                        const userPos = await getPos();
+                        let lockedBssId = null;
+                        let bssName = "";
 
-                    // 2. Susun Data Lengkap (Sesuaikan dengan kolom di Supabase kamu)
-                    const logData = {
-                        id_baterai: this.batteryId, 
-                        persentase_drop: parseInt(document.getElementById('inp-range-drop').value),
-                        persentase_pick: parseInt(document.getElementById('inp-range-pick').value),
-                        user_id: this.currentUser ? this.currentUser.id : null,
-                        lat: coords.lat,  // [FIX] Tidak akan NULL lagi
-                        long: coords.long, // [FIX] Tidak akan NULL lagi
-                        timestamp: new Date().toISOString()
-                    };
+                        // 2. LOGIKA AUTO-LOCK: Cari BSS dalam radius 50 meter
+                        this.bssList.forEach(bss => {
+                            const dist = this.calculateDistance(userPos.lat, userPos.lng, bss.lat, bss.long);
+                            if (dist <= 50) { // Toleransi 50 meter sesuai rencana awal
+                                lockedBssId = bss.id;
+                                bssName = bss.nama_bss;
+                            }
+                        });
 
-                    // 3. CEK KONEKSI & SIMPAN
-                    if (!navigator.onLine) {
-                        let offlineLogs = JSON.parse(localStorage.getItem('offline_logs') || '[]');
-                        offlineLogs.push(logData);
-                        localStorage.setItem('offline_logs', JSON.stringify(offlineLogs));
-                        
-                        alert("⚠️ OFFLINE: Data disimpan di HP. Bakal sinkron pas ada sinyal!");
-                        location.reload();
-                    } else {
-                        const { error } = await this.db.saveLog(logData);
-                        if (error) {
-                            alert("Gagal Simpan: " + error.message);
+                        // 3. Validasi: Jika tidak ada BSS dalam radius 50m, batalkan!
+                        if (!lockedBssId) {
                             btn.innerText = "KIRIM DATA SWAP";
                             btn.disabled = false;
+                            return alert("❌ GAGAL: Kamu tidak berada di radius Stasiun BSS (Maks 50m). Silakan mendekat ke stasiun!");
+                        }
+
+                        // 4. Susun Data (Otomatis dapat id_bss)
+                        const logData = {
+                            id_baterai: this.batteryId,
+                            id_bss: lockedBssId, 
+                            persentase_drop: parseInt(document.getElementById('inp-range-drop').value),
+                            persentase_pick: parseInt(document.getElementById('inp-range-pick').value),
+                            user_id: this.currentUser ? this.currentUser.id : null,
+                            lat: userPos.lat,
+                            long: userPos.lng,
+                            timestamp: new Date().toISOString()
+                        };
+
+                        // 5. Kirim Online/Offline
+                        if (!navigator.onLine) {
+                            let offlineLogs = JSON.parse(localStorage.getItem('offline_logs') || '[]');
+                            offlineLogs.push(logData);
+                            localStorage.setItem('offline_logs', JSON.stringify(offlineLogs));
+                            alert(`⚠️ OFFLINE: Terkunci di BSS ${bssName}. Data disimpan di HP!`);
+                            location.reload();
                         } else {
-                            alert("✅ Data Swap Berhasil Terkirim!");
+                            const { error } = await this.db.saveLog(logData);
+                            if (error) throw error;
+                            alert(`✅ BERHASIL: Swap di BSS ${bssName} tercatat!`);
                             location.reload();
                         }
+
+                    } catch (err) {
+                        alert("Kesalahan GPS: Pastikan Izin Lokasi Aktif!");
+                        btn.innerText = "KIRIM DATA SWAP";
+                        btn.disabled = false;
                     }
                 });
 
