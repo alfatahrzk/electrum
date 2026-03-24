@@ -477,17 +477,58 @@
 
                 // --- SIMPAN LOG BATERAI ---
                 document.getElementById('btn-save-log').addEventListener('click', async () => {
-                    if (!this.batteryId) return alert("Scan QR Baterai Baru dulu rek!");
+                    if (!this.batteryId) return alert("Scan dulu rek!");
                     
+                    const btn = document.getElementById('btn-save-log');
+                    btn.innerText = "⏳ MENGAMBIL GPS...";
+                    btn.disabled = true;
+
+                    // 1. Ambil Lokasi GPS (Wajib agar tidak error NULL)
+                    const getPos = () => {
+                        return new Promise((resolve) => {
+                            navigator.geolocation.getCurrentPosition(
+                                (pos) => resolve({ lat: pos.coords.latitude, long: pos.coords.longitude }),
+                                (err) => {
+                                    console.log("GPS Gagal, kirim koordinat 0");
+                                    resolve({ lat: 0, long: 0 }); // Fallback agar tidak NULL
+                                },
+                                { enableHighAccuracy: true }
+                            );
+                        });
+                    };
+
+                    const coords = await getPos();
+
+                    // 2. Susun Data Lengkap (Sesuaikan dengan kolom di Supabase kamu)
                     const logData = {
                         id_baterai: this.batteryId, 
                         persentase_drop: parseInt(document.getElementById('inp-range-drop').value),
                         persentase_pick: parseInt(document.getElementById('inp-range-pick').value),
-                        user_id: this.currentUser ? this.currentUser.id : null 
+                        user_id: this.currentUser ? this.currentUser.id : null,
+                        lat: coords.lat,  // [FIX] Tidak akan NULL lagi
+                        long: coords.long, // [FIX] Tidak akan NULL lagi
+                        timestamp: new Date().toISOString()
                     };
 
-                    const { error } = await this.db.saveLog(logData);
-                    if (error) alert("Gagal Simpan: " + error.message); else { alert("✅ Data Swap Tersimpan!"); location.reload(); }
+                    // 3. CEK KONEKSI & SIMPAN
+                    if (!navigator.onLine) {
+                        let offlineLogs = JSON.parse(localStorage.getItem('offline_logs') || '[]');
+                        offlineLogs.push(logData);
+                        localStorage.setItem('offline_logs', JSON.stringify(offlineLogs));
+                        
+                        alert("⚠️ OFFLINE: Data disimpan di HP. Bakal sinkron pas ada sinyal!");
+                        location.reload();
+                    } else {
+                        const { error } = await this.db.saveLog(logData);
+                        if (error) {
+                            alert("Gagal Simpan: " + error.message);
+                            btn.innerText = "KIRIM DATA SWAP";
+                            btn.disabled = false;
+                        } else {
+                            alert("✅ Data Swap Berhasil Terkirim!");
+                            location.reload();
+                        }
+                    }
                 });
 
                 // --- PREDIKSI BATERAI ---
