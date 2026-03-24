@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Electrum Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
+</head>
+<body class="bg-[#0f172a] text-slate-200 min-h-screen flex items-center justify-center p-4">
+
+    <div class="w-full max-w-sm bg-slate-800/90 rounded-3xl p-8 border border-slate-700 shadow-2xl space-y-6">
+        <div class="text-center space-y-2">
+            <h1 class="text-3xl font-black text-white italic tracking-tighter">ELECTRUM <span class="text-blue-500">PRO</span></h1>
+            <p class="text-xs text-slate-400">Masuk untuk akses fitur Komunitas</p>
+        </div>
+
+        <div class="space-y-4">
+            <input type="text" id="inp-username" placeholder="Username (misal: joko99)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-blue-500 outline-none">
+            <input type="password" id="inp-password" placeholder="Password (minimal 6 karakter)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-blue-500 outline-none">
+            
+            <div class="pt-2 space-y-3">
+                <button id="btn-login" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg transition-all active:scale-95">Masuk</button>
+                <button id="btn-register" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-4 rounded-xl transition-all active:scale-95 border border-slate-600">Daftar Akun Baru</button>
+            </div>
+        </div>
+
+        <div class="text-center mt-6">
+            <a href="index.html" class="text-xs text-blue-400 hover:underline">← Kembali ke Halaman Publik</a>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('btn-login').addEventListener('click', async () => {
+            const u = document.getElementById('inp-username').value;
+            const p = document.getElementById('inp-password').value;
+            if(!u || !p) return alert("Isi username dan password!");
+
+            const cleanUser = u.trim().replace(/\s+/g, '').toLowerCase();
+            const btn = document.getElementById('btn-login');
+            btn.innerText = "Memproses...";
+
+            // 1. Coba login sebagai USER biasa dulu
+            let emailToTry = `${cleanUser}@electrum-user.com`;
+            let { error } = await supabaseClient.auth.signInWithPassword({ email: emailToTry, password: p });
+
+            // 2. TRIK SAKTI: Kalau ditolak (Invalid login), coba login sebagai ADMIN
+            if (error && error.message.includes("Invalid login")) {
+                emailToTry = `${cleanUser}@electrum-admin.com`;
+                const retry = await supabaseClient.auth.signInWithPassword({ email: emailToTry, password: p });
+                error = retry.error; // Update status error dengan hasil percobaan kedua
+            }
+
+            if(error) {
+                alert("Login Gagal: Username atau Password salah.");
+                btn.innerText = "Masuk";
+            } else {
+                window.location.href = "index.html"; 
+            }
+        });
+
+        document.getElementById('btn-register').addEventListener('click', async () => {
+            const u = document.getElementById('inp-username').value;
+            const p = document.getElementById('inp-password').value;
+            if(!u || p.length < 6) return alert("Username wajib diisi & Password minimal 6 karakter!");
+
+            const cleanUser = u.trim().replace(/\s+/g, '').toLowerCase();
+            // PENTING: Pendaftaran publik SELALU jadi user biasa demi keamanan
+            const email = `${cleanUser}@electrum-user.com`;
+            
+            const btn = document.getElementById('btn-register');
+            btn.innerText = "Mendaftarkan...";
+
+            const { data, error } = await supabaseClient.auth.signUp({ email, password: p });
+            if(error) {
+                alert("Gagal Daftar: " + error.message);
+                btn.innerText = "Daftar Akun Baru";
+            } else if (data.user) {
+                // Tidak perlu insert ke tabel profiles lagi! Cukup Auth bawaan Supabase.
+                alert("Berhasil Daftar! Silakan klik tombol Masuk.");
+                btn.innerText = "Daftar Akun Baru";
+            }
+        });
+    </script>
+</body>
+</html>
