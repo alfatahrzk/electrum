@@ -39,7 +39,7 @@
         <div class="flex flex-wrap gap-2 bg-slate-800/50 rounded-2xl p-1.5 border border-slate-700">
             <button onclick="app.switchTab('log')" id="tab-log" class="flex-1 py-2 rounded-xl text-[11px] font-bold bg-blue-600 text-white shadow-lg">Scan Baterai</button>
             <button onclick="app.switchTab('pred')" id="tab-pred" class="flex-1 py-2 rounded-xl text-[11px] font-bold text-slate-400">Prediksi</button>
-            
+            <button onclick="app.switchTab('analisis')" id="tab-analisis" class="flex-1 py-2 rounded-xl text-[11px] font-bold text-slate-400">Analisis</button>
             <button onclick="app.switchTab('admin-bss')" id="tab-admin-bss" class="hidden flex-1 py-2 rounded-xl text-[11px] font-bold text-emerald-400 border border-emerald-900/50">Admin BSS</button>
             <button onclick="app.switchTab('admin-bat')" id="tab-admin-bat" class="hidden flex-1 py-2 rounded-xl text-[11px] font-bold text-purple-400 border border-purple-900/50">Data Baterai</button>
         </div>
@@ -92,6 +92,57 @@
                 <div class="bg-slate-900/50 p-4 rounded-xl border border-slate-700 text-center space-y-2">
                     <p class="text-xs text-slate-400">Kebutuhan Baterai Minimum:</p>
                     <p id="txt-pred-result" class="text-3xl font-black text-blue-400">0%</p>
+                </div>
+            </div>
+
+            <div class="bg-slate-800/80 border border-slate-700 rounded-3xl p-6 space-y-4">
+                <div class="text-center">
+                    <h3 class="text-sm font-bold text-white uppercase tracking-widest">🕒 Cek Jam Operasional</h3>
+                    <p class="text-[10px] text-slate-500">Ketik jam untuk melihat prediksi ketersediaan</p>
+                </div>
+
+                <div class="flex items-center justify-center gap-4 bg-slate-900/50 p-4 rounded-2xl border border-slate-700">
+                    <div class="text-center">
+                        <input type="number" id="inp-hour-manual" min="0" max="23" 
+                            class="w-16 bg-slate-800 border-2 border-slate-700 rounded-xl p-2 text-2xl font-black text-blue-400 text-center focus:border-blue-500 outline-none">
+                    </div>
+                    <div class="text-3xl font-black text-slate-700">:</div>
+                    <div class="text-center">
+                        <input type="number" id="inp-min-manual" min="0" max="59"
+                            class="w-16 bg-slate-800 border-2 border-slate-700 rounded-xl p-2 text-2xl font-black text-blue-400 text-center focus:border-blue-500 outline-none">
+                        <p class="text-[9px] text-slate-500 mt-1 font-bold">MENIT</p>
+                    </div>
+                </div>
+
+                <button id="btn-cek-prediksi" class="w-full bg-slate-700 hover:bg-blue-600 text-white font-bold py-3 rounded-xl transition-all active:scale-95 text-xs">
+                    🔍 ANALISIS JADWAL INI
+                </button>
+
+                <div id="list-rekomendasi-bss" class="space-y-2 pt-2">
+                    </div>
+            </div>
+        </section>
+
+        <section id="section-analisis" class="hidden space-y-4">
+            <div class="bg-slate-800 p-6 rounded-3xl border border-slate-700 space-y-6">
+                <div class="text-center">
+                    <h2 class="text-lg font-bold text-white" id="txt-analisis-title">Analisis Global</h2>
+                    <p class="text-xs text-slate-400" id="txt-analisis-subtitle">Data swap seluruh komunitas</p>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-slate-900/50 p-4 rounded-2xl border border-slate-700 text-center">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Total Swap</p>
+                        <p class="text-3xl font-black text-blue-400 mt-1" id="stat-total-swap">0</p>
+                    </div>
+                    <div class="bg-slate-900/50 p-4 rounded-2xl border border-slate-700 text-center">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase">Rata-rata Pick</p>
+                        <p class="text-3xl font-black text-emerald-400 mt-1" id="stat-avg-pick">0%</p>
+                    </div>
+                </div>
+                <div class="bg-slate-900/50 p-4 rounded-2xl border border-slate-700 text-center">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase">Rata-rata Baterai Drop</p>
+                    <p class="text-3xl font-black text-red-400 mt-1" id="stat-avg-drop">0%</p>
                 </div>
             </div>
         </section>
@@ -149,6 +200,20 @@
         </section>
 
     </div>
+
+    <div id="modal-track" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm">
+            <div class="bg-slate-800 rounded-3xl p-6 border border-slate-700 shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col space-y-4">
+                <div class="flex justify-between items-center border-b border-slate-700 pb-3">
+                    <h2 class="text-lg font-bold text-white">Riwayat Perjalanan Baterai</h2>
+                    <button id="btn-close-track" class="text-slate-400 hover:text-white text-3xl font-black leading-none">&times;</button>
+                </div>
+                <div class="bg-slate-900/50 p-3 rounded-xl border border-blue-500/30 text-center">
+                    <p id="track-id-baterai" class="font-mono text-blue-400 text-sm font-bold break-all">---</p>
+                </div>
+                <div class="overflow-y-auto flex-1 pr-2 space-y-3" id="track-list">
+                    </div>
+            </div>
+        </div>
 
     <script src="app.js"></script>
 </body>

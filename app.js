@@ -20,6 +20,22 @@
                 return await this.client.from('battery_logs').insert([logData]); 
             }
 
+            async fetchAnalytics(userId = null) {
+                let query = this.client.from('battery_logs').select('persentase_drop, persentase_pick');
+                
+                // Kalau ada userId (User biasa yang login), filter datanya khusus milik dia saja
+                if (userId) {
+                    query = query.eq('user_id', userId);
+                }
+                
+                const { data, error } = await query;
+                if (error) {
+                    console.error("Error fetch analytics:", error);
+                    return [];
+                }
+                return data || [];
+            }
+
             async fetchBatteries() {
                 const { data, error } = await this.client.from('battery_logs')
                                     .select('id_baterai, timestamp')
@@ -43,6 +59,17 @@
                 }
                 return uniqueBatteries;
             }
+
+            async fetchBatteryHistory(id_baterai) {
+                const { data, error } = await this.client
+                    .from('battery_logs')
+                    .select('*')
+                    .eq('id_baterai', id_baterai)
+                    .order('timestamp', { ascending: false });
+                
+                if (error) { console.error("Error lacak:", error); return []; }
+                return data || [];
+            }
         }
 
         // --- MAIN APP CONTROLLER ---
@@ -63,6 +90,11 @@
                 this.selectedRegCoords = null;
                 this.regMarker = null;
                 this.editingBssId = null;
+                this.uniqueBatteries = [];
+
+                const sekarang = new Date();
+                this.selectedHour = sekarang.getHours().toString().padStart(2, '0');
+                this.selectedMin = sekarang.getMinutes().toString().padStart(2, '0');
 
                 this.init();
             }
@@ -71,12 +103,19 @@
                 await this.checkAuthStatus();
                 this.initScanner();
                 this.initListeners();
+
+                // [BARU] Set angka input manual ke jam sekarang
+                document.getElementById('inp-hour-manual').value = this.selectedHour;
+                document.getElementById('inp-min-manual').value = this.selectedMin;
+                
+                this.bssList = await this.db.fetchBSS();
+                this.renderAnalytics(); 
+                this.renderBssRecommendation(); // Prediksi otomatis jam sekarang
                 
                 if(this.userRole === 'admin') {
-                    this.bssList = await this.db.fetchBSS();
                     this.initAdminMap();
                     this.loadBatteryTable();
-                    this.renderBssDropdown(); // 👈 INI YANG KETINGGALAN BOSS!
+                    this.renderBssDropdown();
                 }
                 
                 this.switchTab('log');
@@ -142,11 +181,11 @@
             }
 
             switchTab(tab) {
-                ['log', 'pred', 'admin-bss', 'admin-bat'].forEach(id => {
+                ['log', 'pred', 'analisis', 'admin-bss', 'admin-bat'].forEach(id => {
                     document.getElementById(`section-${id}`).classList.add('hidden');
                 });
                 
-                ['log', 'pred', 'admin-bss', 'admin-bat'].forEach(id => {
+                ['log', 'pred', 'analisis', 'admin-bss', 'admin-bat'].forEach(id => {
                     const el = document.getElementById(`tab-${id}`);
                     if(el) {
                         el.className = el.className.replace('bg-blue-600 text-white shadow-lg', 'text-slate-400');
@@ -157,14 +196,14 @@
 
                 document.getElementById(`section-${tab}`).classList.remove('hidden');
                 
-                if (tab === 'log' || tab === 'pred') {
+                if (tab === 'log' || tab === 'pred' || tab === 'analisis') {
                     document.getElementById(`tab-${tab}`).className = `flex-1 py-2 rounded-xl text-[11px] font-bold bg-blue-600 text-white shadow-lg`;
                 } else if (tab === 'admin-bss') {
                     document.getElementById(`tab-${tab}`).className = `flex-1 py-2 rounded-xl text-[11px] font-bold bg-emerald-600 text-white shadow-lg border border-transparent`;
                     setTimeout(() => { this.mapReg.resize(); }, 300);
                 } else if (tab === 'admin-bat') {
                     document.getElementById(`tab-${tab}`).className = `flex-1 py-2 rounded-xl text-[11px] font-bold bg-purple-600 text-white shadow-lg border border-transparent`;
-                }
+                } 
             }
 
             calculatePrediction() {
@@ -181,18 +220,210 @@
                                   requiredBattery > 50 ? "text-4xl font-black text-yellow-500" : "text-4xl font-black text-emerald-400";
             }
 
-            async loadBatteryTable() {
-                const bats = await this.db.fetchBatteries();
+            async renderBssRecommendation() {
+                const listEl = document.getElementById('list-rekomendasi-bss');
+                if (!listEl) return;
+
+                listEl.innerHTML = '<p class="text-[10px] text-slate-500 text-center py-4 animate-pulse">Menghitung data historis...</p>';
+
+                // 1. Ambil data logs
+                const { data: logs, error } = await this.db.client
+                    .from('battery_logs')
+                    .select('id_bss, persentase_pick, timestamp');
+                
+                if (error) {
+                    listEl.innerHTML = '<p class="text-[10px] text-red-400 text-center">Gagal memuat data.</p>';
+                    return;
+                }
+
+                // 2. Filter berdasarkan JAM (Input Manual)
+                const targetHour = parseInt(this.selectedHour || 10);
+                const filteredLogs = (logs || []).filter(log => {
+                    const logDate = new Date(log.timestamp);
+                    return logDate.getHours() === targetHour;
+                });
+
+                // 3. Hitung Statistik
+                const bssScores = {};
+                filteredLogs.forEach(log => {
+                    if (log.id_bss) {
+                        if (!bssScores[log.id_bss]) bssScores[log.id_bss] = { count: 0, total: 0 };
+                        bssScores[log.id_bss].count++;
+                        bssScores[log.id_bss].total += log.persentase_pick;
+                    }
+                });
+
+                // 4. Ranking
+                const ranked = this.bssList.map(bss => {
+                    const s = bssScores[bss.id] || { count: 0, total: 0 };
+                    return { ...bss, score: s.count, avg: s.count > 0 ? Math.round(s.total/s.count) : 0 };
+                })
+                .filter(b => b.score > 0)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 3);
+
+                // 5. Render ke UI
+                listEl.innerHTML = '';
+                if (ranked.length === 0) {
+                    listEl.innerHTML = `<p class="text-[10px] text-slate-500 text-center bg-slate-900/30 p-4 rounded-xl italic">Belum ada data swap pada jam ${targetHour.toString().padStart(2,'0')}:00.</p>`;
+                    return;
+                }
+
+                ranked.forEach((b, i) => {
+                    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
+                    listEl.innerHTML += `
+                        <div class="bg-slate-900/50 p-3 rounded-2xl border border-slate-700 flex justify-between items-center">
+                            <div class="flex items-center gap-3">
+                                <span class="text-xl">${medal}</span>
+                                <div>
+                                    <p class="text-[10px] font-black text-emerald-400">${b.nama_bss.toUpperCase()}</p>
+                                    <p class="text-[8px] text-slate-500 uppercase font-bold">${b.score} Kali Swap</p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-[8px] text-slate-500 uppercase font-bold">Estimasi</p>
+                                <p class="text-sm font-black text-blue-400">${b.avg}%</p>
+                            </div>
+                        </div>`;
+                });
+            }
+
+            async renderAnalytics() {
+                // Sesuai janji: User = Personal, Publik/Admin = Global
+                const isUserOnly = this.userRole === 'user';
+                const fetchId = isUserOnly ? this.currentUser.id : null;
+                
+                document.getElementById('txt-analisis-title').innerText = isUserOnly ? "Analisis Personal" : "Analisis Global";
+                document.getElementById('txt-analisis-subtitle').innerText = isUserOnly ? "Riwayat swap baterai kamu" : "Data swap seluruh komunitas";
+
+                const data = await this.db.fetchAnalytics(fetchId);
+                
+                document.getElementById('stat-total-swap').innerText = data.length;
+                
+                if (data.length > 0) {
+                    const totalDrop = data.reduce((sum, row) => sum + row.persentase_drop, 0);
+                    const totalPick = data.reduce((sum, row) => sum + row.persentase_pick, 0);
+                    
+                    document.getElementById('stat-avg-drop').innerText = Math.round(totalDrop / data.length) + "%";
+                    document.getElementById('stat-avg-pick').innerText = Math.round(totalPick / data.length) + "%";
+                } else {
+                    document.getElementById('stat-avg-drop').innerText = "0%";
+                    document.getElementById('stat-avg-pick').innerText = "0%";
+                }
+            }
+
+            async loadBatteryTable(searchQuery = '') {
+                // Tarik data dari DB cuma sekali di awal, sisanya pakai memori biar ngebut
+                if (this.uniqueBatteries.length === 0) {
+                    this.uniqueBatteries = await this.db.fetchBatteries();
+                }
+
                 const tbody = document.getElementById('tbl-batteries');
                 tbody.innerHTML = '';
-                bats.forEach(b => {
+
+                // Fitur Search Bar
+                const filtered = this.uniqueBatteries.filter(b => 
+                    b.id_baterai.toLowerCase().includes(searchQuery.toLowerCase())
+                );
+
+                filtered.forEach(b => {
                     tbody.innerHTML += `
-                        <tr class="hover:bg-slate-800">
-                            <td class="px-3 py-3 font-mono text-blue-400">${b.id_baterai}</td>
-                            <td class="px-3 py-3 text-slate-500">${new Date(b.timestamp).toLocaleDateString('id-ID')}</td>
+                        <tr class="hover:bg-slate-800 border-b border-slate-700/50">
+                            <td class="px-3 py-3 font-mono text-blue-400 text-[10px] break-all">${b.id_baterai}</td>
+                            <td class="px-3 py-3 text-right">
+                                <button onclick="app.openTrackModal('${b.id_baterai}')" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold shadow-lg transition-all active:scale-95">
+                                    🔍 LACAK
+                                </button>
+                            </td>
                         </tr>
                     `;
                 });
+            }
+
+            async openTrackModal(id_baterai) {
+                document.getElementById('modal-track').classList.remove('hidden');
+                document.getElementById('track-id-baterai').innerText = id_baterai;
+                
+                const listEl = document.getElementById('track-list');
+                listEl.innerHTML = '<p class="text-xs text-slate-500 text-center py-6 animate-pulse">Memuat riwayat detektif...</p>';
+
+                const history = await this.db.fetchBatteryHistory(id_baterai);
+                listEl.innerHTML = '';
+
+                if (history.length === 0) {
+                    listEl.innerHTML = '<p class="text-xs text-slate-500 text-center py-6">Tidak ada riwayat pertukaran.</p>';
+                    return;
+                }
+
+                history.forEach(log => {
+                    // Cek lokasi BSS
+                    let bssName = "Lokasi Swap Publik / Di Jalan";
+                    if (log.id_bss) {
+                        const bss = this.bssList.find(b => b.id === log.id_bss);
+                        if (bss) bssName = bss.nama_bss;
+                    }
+
+                    // Format Tanggal
+                    const dateStr = new Date(log.timestamp).toLocaleString('id-ID', {
+                        day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                    });
+
+                    listEl.innerHTML += `
+                        <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-700">
+                            <div class="flex justify-between items-start mb-3 border-b border-slate-700/50 pb-2">
+                                <span class="text-[11px] font-black text-emerald-400">📍 ${bssName.toUpperCase()}</span>
+                                <span class="text-[10px] text-slate-400 font-mono">${dateStr}</span>
+                            </div>
+                            <div class="flex gap-4">
+                                <div class="flex-1 bg-slate-800 p-2 rounded-xl text-center">
+                                    <p class="text-[9px] text-slate-500 font-bold uppercase">Kondisi Drop</p>
+                                    <p class="text-lg font-black text-red-400">${log.persentase_drop}%</p>
+                                </div>
+                                <div class="flex-1 bg-slate-800 p-2 rounded-xl text-center">
+                                    <p class="text-[9px] text-slate-500 font-bold uppercase">Kondisi Pick</p>
+                                    <p class="text-lg font-black text-blue-400">${log.persentase_pick}%</p>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            // Memasukkan angka 00-23 ke dalam grid jam
+            generateHourGrid() {
+                const grid = document.getElementById('grid-hour');
+                if (!grid) return;
+                grid.innerHTML = '';
+                
+                for (let i = 0; i < 24; i++) {
+                    const hourStr = i.toString().padStart(2, '0');
+                    const isActive = hourStr === this.selectedHour ? 'active-time' : '';
+                    
+                    grid.innerHTML += `
+                        <div onclick="app.setTime('hour', '${hourStr}', this)" 
+                            class="time-cell-hour border border-slate-600 bg-slate-700 text-white text-center py-1.5 rounded text-[10px] cursor-pointer hover:bg-blue-600 transition-colors ${isActive}">
+                            ${hourStr}
+                        </div>
+                    `;
+                }
+            }
+
+            // Fungsi saat kotak jam/menit diklik
+            setTime(type, val, el) {
+                if (type === 'hour') {
+                    this.selectedHour = val;
+                    document.querySelectorAll('.time-cell-hour').forEach(c => c.classList.remove('active-time'));
+                } else {
+                    this.selectedMin = val;
+                    document.querySelectorAll('.time-cell-min').forEach(c => c.classList.remove('active-time'));
+                }
+                
+                el.classList.add('active-time');
+                document.getElementById('txt-selected-time').innerText = `Menampilkan prediksi untuk Jam ${this.selectedHour}:${this.selectedMin}`;
+                
+                // Panggil ulang prediksi setiap kali waktu berubah
+                this.renderBssRecommendation();
+                if(navigator.vibrate) navigator.vibrate(20); // Getar halus biar berasa tactile
             }
 
             renderBssDropdown() {
@@ -250,6 +481,34 @@
                     document.getElementById('btn-mode-eco').className = "flex-1 py-3 rounded-xl text-xs font-bold bg-slate-700 text-slate-300 border border-slate-600 transition-all";
                     this.calculatePrediction();
                 });
+
+                const btnCek = document.getElementById('btn-cek-prediksi');
+                if (btnCek) {
+                    btnCek.addEventListener('click', () => {
+                        // Ambil nilai dari input manual
+                        this.selectedHour = document.getElementById('inp-hour-manual').value;
+                        this.selectedMin = document.getElementById('inp-min-manual').value;
+                        
+                        // Validasi angka
+                        if(this.selectedHour > 23 || this.selectedHour < 0) return alert("Jam salah boss (0-23)!");
+                        
+                        this.renderBssRecommendation();
+                        if(navigator.vibrate) navigator.vibrate(50);
+                    });
+                }
+
+                // --- PENCARIAN & MODAL TRACKING ---
+                const searchBat = document.getElementById('inp-search-bat');
+                if (searchBat) {
+                    searchBat.addEventListener('input', (e) => this.loadBatteryTable(e.target.value));
+                }
+                
+                const btnCloseTrack = document.getElementById('btn-close-track');
+                if (btnCloseTrack) {
+                    btnCloseTrack.addEventListener('click', () => {
+                        document.getElementById('modal-track').classList.add('hidden');
+                    });
+                }
 
                 // --- [FIX] PENGELOLAAN ADMIN BSS (PINDAH KE SINI) ---
                 document.getElementById('btn-use-gps').addEventListener('click', () => {
