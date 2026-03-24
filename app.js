@@ -180,6 +180,29 @@
                 }).catch(err => console.log("Kamera stand-by"));
             }
 
+            playSuccessSound() {
+                try {
+                    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioCtx.createOscillator();
+                    const gainNode = audioCtx.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioCtx.destination);
+
+                    oscillator.type = 'sine'; // Suara lembut tapi jelas
+                    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // Nada tinggi (A5)
+                    
+                    gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+                    gainNode.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 0.01);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+
+                    oscillator.start(audioCtx.currentTime);
+                    oscillator.stop(audioCtx.currentTime + 0.2); // Durasi 0.2 detik
+                } catch (e) {
+                    console.log("Audio diblokir browser, butuh interaksi user dulu.");
+                }
+            }
+
             switchTab(tab) {
                 ['log', 'pred', 'analisis', 'admin-bss', 'admin-bat'].forEach(id => {
                     document.getElementById(`section-${id}`).classList.add('hidden');
