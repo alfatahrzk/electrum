@@ -81,6 +81,7 @@
                 this.scanner = new Html5Qrcode("reader");
                 this.batteryId = null;
                 this.bssList = [];
+                this.lockedBssId = null;
                 
                 this.currentUser = null;
                 this.userRole = 'public'; 
@@ -95,6 +96,7 @@
                 const sekarang = new Date();
                 this.selectedHour = sekarang.getHours().toString().padStart(2, '0');
                 this.selectedMin = sekarang.getMinutes().toString().padStart(2, '0');
+                
 
                 this.init();
             }
@@ -109,6 +111,7 @@
                 document.getElementById('inp-min-manual').value = this.selectedMin;
                 
                 this.bssList = await this.db.fetchBSS();
+                this.watchUserLocation();
                 this.renderAnalytics(); 
                 this.renderBssRecommendation(); // Prediksi otomatis jam sekarang
                 
@@ -201,6 +204,51 @@
                 } catch (e) {
                     console.log("Audio diblokir browser, butuh interaksi user dulu.");
                 }
+            }
+
+            watchUserLocation() {
+                if (!navigator.geolocation) return;
+
+                // Pantau posisi secara terus menerus
+                navigator.geolocation.watchPosition((pos) => {
+                    const uLat = pos.coords.latitude;
+                    const uLng = pos.coords.longitude;
+                    let nearestBss = null;
+                    let minDistance = Infinity;
+
+                    // Cek jarak ke semua BSS
+                    this.bssList.forEach(bss => {
+                        const dist = this.calculateDistance(uLat, uLng, bss.lat, bss.long);
+                        if (dist < minDistance) {
+                            minDistance = dist;
+                            nearestBss = { ...bss, dist: Math.round(dist) };
+                        }
+                    });
+
+                    // Update UI Preview
+                    const statusBox = document.getElementById('location-lock-status');
+                    const lockText = document.getElementById('lock-text');
+                    const lockDist = document.getElementById('lock-dist');
+                    const lockIcon = document.getElementById('lock-icon');
+
+                    if (nearestBss && nearestBss.dist <= 50) {
+                        // BERHASIL LOCK
+                        this.lockedBssId = nearestBss.id; // Simpan ID untuk dikirim nanti
+                        statusBox.className = "mt-4 p-4 rounded-2xl border-2 border-emerald-500 bg-emerald-500/10 flex flex-col items-center justify-center transition-all duration-500 shadow-[0_0_15px_rgba(16,185,129,0.2)]";
+                        lockText.className = "text-[10px] font-black text-emerald-400 uppercase tracking-widest text-center";
+                        lockText.innerText = `TERKUNCI: ${nearestBss.nama_bss.toUpperCase()}`;
+                        lockDist.innerText = `Jarak: ${nearestBss.dist} meter (OK)`;
+                        lockIcon.innerText = "✅";
+                    } else {
+                        // DILUAR RADIUS
+                        this.lockedBssId = null;
+                        statusBox.className = "mt-4 p-4 rounded-2xl border-2 border-dashed border-slate-700 bg-slate-900/50 flex flex-col items-center justify-center transition-all duration-500";
+                        lockText.className = "text-[10px] font-black text-slate-500 uppercase tracking-widest text-center";
+                        lockText.innerText = nearestBss ? `Terlalu Jauh dari ${nearestBss.nama_bss}` : "Mencari BSS...";
+                        lockDist.innerText = nearestBss ? `Jarak: ${nearestBss.dist} meter (Min. 50m)` : "";
+                        lockIcon.innerText = "📍";
+                    }
+                }, (err) => console.log("GPS Error:", err), { enableHighAccuracy: true });
             }
 
             calculateDistance(lat1, lon1, lat2, lon2) {
@@ -489,74 +537,38 @@
                 // --- SIMPAN LOG BATERAI ---
                 document.getElementById('btn-save-log').addEventListener('click', async () => {
                     if (!this.batteryId) return alert("Scan QR Baterai dulu!");
+                    if (!this.lockedBssId) return alert("❌ GAGAL: Dekati stasiun BSS dulu sampai indikator berubah HIJAU!");
 
                     const btn = document.getElementById('btn-save-log');
-                    btn.innerText = "⏳ MENGUNCI LOKASI BSS...";
+                    btn.innerText = "🚀 MENGIRIM...";
                     btn.disabled = true;
 
-                    // 1. Ambil Koordinat GPS Real-time
-                    const getPos = () => {
-                        return new Promise((resolve, reject) => {
-                            navigator.geolocation.getCurrentPosition(
-                                (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-                                (err) => reject(err),
-                                { enableHighAccuracy: true }
-                            );
-                        });
-                    };
-
-                    try {
-                        const userPos = await getPos();
-                        let lockedBssId = null;
-                        let bssName = "";
-
-                        // 2. LOGIKA AUTO-LOCK: Cari BSS dalam radius 50 meter
-                        this.bssList.forEach(bss => {
-                            const dist = this.calculateDistance(userPos.lat, userPos.lng, bss.lat, bss.long);
-                            if (dist <= 50) { // Toleransi 50 meter sesuai rencana awal
-                                lockedBssId = bss.id;
-                                bssName = bss.nama_bss;
-                            }
-                        });
-
-                        // 3. Validasi: Jika tidak ada BSS dalam radius 50m, batalkan!
-                        if (!lockedBssId) {
-                            btn.innerText = "KIRIM DATA SWAP";
-                            btn.disabled = false;
-                            return alert("❌ GAGAL: Kamu tidak berada di radius Stasiun BSS (Maks 50m). Silakan mendekat ke stasiun!");
-                        }
-
-                        // 4. Susun Data (Otomatis dapat id_bss)
+                    // Ambil koordinat terakhir (opsional, bisa ambil dari state terakhir)
+                    navigator.geolocation.getCurrentPosition(async (pos) => {
                         const logData = {
                             id_baterai: this.batteryId,
-                            id_bss: lockedBssId, 
+                            id_bss: this.lockedBssId, // Diambil dari variabel yang sudah ter-lock otomatis
                             persentase_drop: parseInt(document.getElementById('inp-range-drop').value),
                             persentase_pick: parseInt(document.getElementById('inp-range-pick').value),
                             user_id: this.currentUser ? this.currentUser.id : null,
-                            lat: userPos.lat,
-                            long: userPos.lng,
+                            lat: pos.coords.latitude,
+                            long: pos.coords.longitude,
                             timestamp: new Date().toISOString()
                         };
 
-                        // 5. Kirim Online/Offline
                         if (!navigator.onLine) {
+                            // Logika simpan offline...
                             let offlineLogs = JSON.parse(localStorage.getItem('offline_logs') || '[]');
                             offlineLogs.push(logData);
                             localStorage.setItem('offline_logs', JSON.stringify(offlineLogs));
-                            alert(`⚠️ OFFLINE: Terkunci di BSS ${bssName}. Data disimpan di HP!`);
+                            alert("⚠️ OFFLINE: Tersimpan di HP!");
                             location.reload();
                         } else {
                             const { error } = await this.db.saveLog(logData);
-                            if (error) throw error;
-                            alert(`✅ BERHASIL: Swap di BSS ${bssName} tercatat!`);
-                            location.reload();
+                            if (error) { alert("Gagal: " + error.message); btn.disabled = false; btn.innerText = "KIRIM DATA SWAP"; }
+                            else { alert("✅ Berhasil dicatat di stasiun!"); location.reload(); }
                         }
-
-                    } catch (err) {
-                        alert("Kesalahan GPS: Pastikan Izin Lokasi Aktif!");
-                        btn.innerText = "KIRIM DATA SWAP";
-                        btn.disabled = false;
-                    }
+                    });
                 });
 
                 // --- PREDIKSI BATERAI ---
